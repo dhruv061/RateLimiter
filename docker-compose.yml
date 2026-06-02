@@ -1,0 +1,24 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: fail2ban-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      - /var/log/nginx:/host/nginx:ro
+      - /var/log/fail2ban.log:/host/fail2ban.log:ro
+      - /etc/nginx/fail2ban_blocked.conf:/host/fail2ban_blocked.conf
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
