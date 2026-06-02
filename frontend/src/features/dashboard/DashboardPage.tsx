@@ -1,4 +1,4 @@
-import { Activity, Database, Gauge, Server, Shield, ShieldAlert } from "lucide-react";
+import { Activity, Database, Gauge, Server, Shield, ShieldAlert, HelpCircle } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { AnimatedNumber } from "../../components/ui/animated-number";
@@ -33,17 +33,52 @@ export function DashboardPage() {
     <>
       <PageHeader title="Security Overview" subtitle="Nginx rate limiting, bans, and service health at a glance." />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric icon={Gauge} label="Requests Today" value={stats.total_requests_today} detail={`${stats.requests_last_hour.toLocaleString()} last hour`} />
-        <Metric icon={ShieldAlert} label="429 Responses" value={stats.total_429_today} detail={`${stats.count_429_last_hour.toLocaleString()} last hour`} tone="warning" />
-        <Metric icon={Shield} label="Active Bans" value={stats.active_bans} detail={`${stats.bans_24h.toLocaleString()} in 24h`} tone="danger" />
-        <Metric icon={Activity} label="Unbans Today" value={stats.unbans_today} detail={`${stats.total_bans_today.toLocaleString()} bans today`} tone="success" />
+        <Metric
+          icon={Gauge}
+          label="Requests Today"
+          value={stats.total_requests_today}
+          detail={`${stats.requests_last_hour.toLocaleString()} last hour`}
+          help="Total Nginx HTTP requests logged for the selected domain and date/time range."
+        />
+        <Metric
+          icon={ShieldAlert}
+          label="429 Responses"
+          value={stats.total_429_today}
+          detail={`${stats.count_429_last_hour.toLocaleString()} last hour`}
+          tone="warning"
+          help="Total rate limit hits (HTTP 429 status code) logged for the selected domain and date/time range."
+        />
+        <Metric
+          icon={Shield}
+          label="Active Bans"
+          value={stats.active_bans}
+          detail={`${stats.bans_24h.toLocaleString()} in 24h`}
+          tone="danger"
+          help="The count of IP addresses currently blocked by Fail2Ban for the selected domain."
+        />
+        <Metric
+          icon={Activity}
+          label="Unbans Today"
+          value={stats.unbans_today}
+          detail={`${stats.total_bans_today.toLocaleString()} bans today`}
+          tone="success"
+          help="Total IPs unbanned or whose bans expired today for the selected domain."
+        />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.8fr_1fr]">
         <Card className="min-h-[360px]">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <CardTitle>Traffic Trend</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle>Traffic Trend</CardTitle>
+                <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+                  <HelpCircle className="h-3.5 w-3.5" />
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+                    Aggregated request counts over time for the selected domain.
+                  </span>
+                </span>
+              </div>
               <div className="mt-1 text-xl font-semibold">Last 24 hours</div>
             </div>
             <Badge tone="info">Hourly</Badge>
@@ -66,7 +101,15 @@ export function DashboardPage() {
           </div>
         </Card>
         <Card>
-          <CardTitle>System Status</CardTitle>
+          <div className="mb-5 flex items-center gap-1.5">
+            <CardTitle>System Status</CardTitle>
+            <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+              <HelpCircle className="h-3.5 w-3.5" />
+              <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+                Real-time check on status of local running services.
+              </span>
+            </span>
+          </div>
           <div className="mt-5 space-y-4">
             <Status icon={Server} label="Nginx" value={stats.nginx_status} />
             <Status icon={Shield} label="Fail2Ban" value={stats.fail2ban_status} />
@@ -79,11 +122,33 @@ export function DashboardPage() {
   );
 }
 
-function Metric({ icon: Icon, label, value, detail, tone = "info" }: { icon: typeof Gauge; label: string; value: number; detail: string; tone?: "info" | "success" | "warning" | "danger" }) {
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone = "info",
+  help
+}: {
+  icon: typeof Gauge;
+  label: string;
+  value: number;
+  detail: string;
+  tone?: "info" | "success" | "warning" | "danger";
+  help: string;
+}) {
   return (
     <Card>
       <div className="mb-5 flex items-center justify-between">
-        <CardTitle>{label}</CardTitle>
+        <div className="flex items-center gap-1.5">
+          <CardTitle>{label}</CardTitle>
+          <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+            <HelpCircle className="h-3.5 w-3.5" />
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+              {help}
+            </span>
+          </span>
+        </div>
         <Badge tone={tone}>
           <Icon className="h-3 w-3" />
         </Badge>

@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
+import { useGlobalFilter } from "../context/GlobalFilterContext";
 
 export function useApi<T>(path: string, fallback: T) {
   const [data, setData] = useState<T>(fallback);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Access global filter state to reactively reload when selections change
+  const { selectedDomain, selectedRange, customRange, refreshTrigger } = useGlobalFilter();
 
   useEffect(() => {
     let active = true;
@@ -29,7 +33,7 @@ export function useApi<T>(path: string, fallback: T) {
     return () => {
       active = false;
     };
-  }, [path]);
+  }, [path, selectedDomain, selectedRange, customRange.start, customRange.end, refreshTrigger]);
 
   return { data, setData, loading, error };
 }

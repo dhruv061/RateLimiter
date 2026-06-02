@@ -20,8 +20,8 @@ func NewBanService(db *database.DB) *BanService {
 	return &BanService{db: db}
 }
 
-// GetActiveBans returns paginated active bans.
-func (s *BanService) GetActiveBans(page, perPage int, search, sortBy, sortDir, country string) (*models.PaginatedResponse, error) {
+// GetActiveBans returns paginated active bans scoped by global filters.
+func (s *BanService) GetActiveBans(filter models.GlobalFilter, page, perPage int, search, sortBy, sortDir, country string) (*models.PaginatedResponse, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -43,6 +43,8 @@ func (s *BanService) GetActiveBans(page, perPage int, search, sortBy, sortDir, c
 		where += " AND country_code = ?"
 		args = append(args, country)
 	}
+
+	where, args = applyGlobalFilter(where, args, filter)
 
 	// Count
 	var total int64
@@ -70,7 +72,7 @@ func (s *BanService) GetActiveBans(page, perPage int, search, sortBy, sortDir, c
 	}
 
 	query := fmt.Sprintf(
-		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, created_at FROM bans %s ORDER BY %s %s LIMIT ? OFFSET ?",
+		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, domain_id, created_at FROM bans %s ORDER BY %s %s LIMIT ? OFFSET ?",
 		where, orderBy, sortDir,
 	)
 	args = append(args, perPage, offset)
@@ -87,7 +89,7 @@ func (s *BanService) GetActiveBans(page, perPage int, search, sortBy, sortDir, c
 		var unbanTime sql.NullTime
 		err := rows.Scan(&b.ID, &b.IPAddress, &b.Country, &b.CountryCode, &b.Region, &b.City,
 			&b.ASN, &b.ISP, &b.Jail, &b.Reason, &b.BanTime, &unbanTime,
-			&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.CreatedAt)
+			&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.DomainID, &b.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -108,8 +110,8 @@ func (s *BanService) GetActiveBans(page, perPage int, search, sortBy, sortDir, c
 	}, nil
 }
 
-// GetBanHistory returns paginated historical bans.
-func (s *BanService) GetBanHistory(page, perPage int, search, dateFrom, dateTo string) (*models.PaginatedResponse, error) {
+// GetBanHistory returns paginated historical bans scoped by global filters.
+func (s *BanService) GetBanHistory(filter models.GlobalFilter, page, perPage int, search, dateFrom, dateTo string) (*models.PaginatedResponse, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -129,10 +131,22 @@ func (s *BanService) GetBanHistory(page, perPage int, search, dateFrom, dateTo s
 	if dateFrom != "" {
 		where += " AND ban_time >= ?"
 		args = append(args, dateFrom)
+	} else if filter.StartTime != nil {
+		where += " AND ban_time >= ?"
+		args = append(args, *filter.StartTime)
 	}
+
 	if dateTo != "" {
 		where += " AND ban_time <= ?"
 		args = append(args, dateTo)
+	} else if filter.EndTime != nil {
+		where += " AND ban_time <= ?"
+		args = append(args, *filter.EndTime)
+	}
+
+	if filter.DomainID > 0 {
+		where += " AND domain_id = ?"
+		args = append(args, filter.DomainID)
 	}
 
 	var total int64
@@ -141,7 +155,7 @@ func (s *BanService) GetBanHistory(page, perPage int, search, dateFrom, dateTo s
 	}
 
 	query := fmt.Sprintf(
-		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, created_at FROM bans %s ORDER BY ban_time DESC LIMIT ? OFFSET ?",
+		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, domain_id, created_at FROM bans %s ORDER BY ban_time DESC LIMIT ? OFFSET ?",
 		where,
 	)
 	args = append(args, perPage, offset)
@@ -158,7 +172,7 @@ func (s *BanService) GetBanHistory(page, perPage int, search, dateFrom, dateTo s
 		var unbanTime sql.NullTime
 		err := rows.Scan(&b.ID, &b.IPAddress, &b.Country, &b.CountryCode, &b.Region, &b.City,
 			&b.ASN, &b.ISP, &b.Jail, &b.Reason, &b.BanTime, &unbanTime,
-			&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.CreatedAt)
+			&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.DomainID, &b.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -184,11 +198,11 @@ func (s *BanService) GetBanByID(id int64) (*models.Ban, error) {
 	var b models.Ban
 	var unbanTime sql.NullTime
 	err := s.db.QueryRow(
-		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, created_at FROM bans WHERE id = ?",
+		"SELECT id, ip_address, country, country_code, region, city, asn, isp, jail, reason, ban_time, unban_time, ban_duration, request_count, violation_count, is_active, domain_id, created_at FROM bans WHERE id = ?",
 		id,
 	).Scan(&b.ID, &b.IPAddress, &b.Country, &b.CountryCode, &b.Region, &b.City,
 		&b.ASN, &b.ISP, &b.Jail, &b.Reason, &b.BanTime, &unbanTime,
-		&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.CreatedAt)
+		&b.BanDuration, &b.RequestCount, &b.ViolationCount, &b.IsActive, &b.DomainID, &b.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -226,22 +240,30 @@ func (s *BanService) BulkUnban(ids []int64) (int64, error) {
 	return affected, nil
 }
 
-// GetTopOffenders returns IPs with the most violations.
-func (s *BanService) GetTopOffenders(limit int) ([]models.TopOffender, error) {
+// GetTopOffenders returns IPs with the most violations scoped by global filters.
+func (s *BanService) GetTopOffenders(filter models.GlobalFilter, limit int) ([]models.TopOffender, error) {
 	if limit < 1 || limit > 100 {
 		limit = 10
 	}
 
-	rows, err := s.db.Query(`
+	where := "WHERE 1=1"
+	var args []interface{}
+	where, args = applyGlobalFilter(where, args, filter)
+
+	query := fmt.Sprintf(`
 		SELECT ip_address, country, country_code,
 			SUM(request_count) as total_requests,
 			SUM(violation_count) as total_violations,
 			COUNT(*) as ban_count
 		FROM bans
+		%s
 		GROUP BY ip_address
 		ORDER BY total_violations DESC
 		LIMIT ?
-	`, limit)
+	`, where)
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -258,9 +280,30 @@ func (s *BanService) GetTopOffenders(limit int) ([]models.TopOffender, error) {
 	return offenders, nil
 }
 
-// GetActiveBanCount returns the count of active bans.
-func (s *BanService) GetActiveBanCount() (int, error) {
+// GetActiveBanCount returns the count of active bans scoped by global filters.
+func (s *BanService) GetActiveBanCount(filter models.GlobalFilter) (int, error) {
+	where := "WHERE is_active = 1"
+	var args []interface{}
+	where, args = applyGlobalFilter(where, args, filter)
+
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM bans WHERE is_active = 1").Scan(&count)
+	err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM bans %s", where), args...).Scan(&count)
 	return count, err
+}
+
+// Helper function to append global filters (domain_id, start_time, end_time) to queries.
+func applyGlobalFilter(where string, args []interface{}, filter models.GlobalFilter) (string, []interface{}) {
+	if filter.DomainID > 0 {
+		where += " AND domain_id = ?"
+		args = append(args, filter.DomainID)
+	}
+	if filter.StartTime != nil {
+		where += " AND ban_time >= ?"
+		args = append(args, *filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		where += " AND ban_time <= ?"
+		args = append(args, *filter.EndTime)
+	}
+	return where, args
 }

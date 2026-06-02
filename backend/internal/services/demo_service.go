@@ -106,6 +106,7 @@ var demoAuditActions = []struct {
 }
 
 // SeedDemoData populates the database with realistic demo data.
+// SeedDemoData populates the database with realistic demo data.
 func (s *DemoService) SeedDemoData() error {
 	// Check if demo data already exists
 	var count int
@@ -117,16 +118,21 @@ func (s *DemoService) SeedDemoData() error {
 
 	log.Println("🌱 Seeding demo data...")
 
-	if err := s.seedBans(); err != nil {
+	domainIDs, err := s.seedDomains()
+	if err != nil {
+		return fmt.Errorf("failed to seed domains: %w", err)
+	}
+
+	if err := s.seedBans(domainIDs); err != nil {
 		return fmt.Errorf("failed to seed bans: %w", err)
 	}
-	if err := s.seedTrafficStats(); err != nil {
+	if err := s.seedTrafficStats(domainIDs); err != nil {
 		return fmt.Errorf("failed to seed traffic stats: %w", err)
 	}
-	if err := s.seedWhitelist(); err != nil {
+	if err := s.seedWhitelist(domainIDs); err != nil {
 		return fmt.Errorf("failed to seed whitelist: %w", err)
 	}
-	if err := s.seedAuditLogs(); err != nil {
+	if err := s.seedAuditLogs(domainIDs); err != nil {
 		return fmt.Errorf("failed to seed audit logs: %w", err)
 	}
 
@@ -134,7 +140,45 @@ func (s *DemoService) SeedDemoData() error {
 	return nil
 }
 
-func (s *DemoService) seedBans() error {
+func (s *DemoService) seedDomains() ([]int64, error) {
+	domains := []struct {
+		Name      string
+		AccessLog string
+		ErrorLog  string
+		BlockFile string
+		Jail      string
+		Server    string
+		Desc      string
+	}{
+		{"example.com", "/var/log/nginx/example_access.log", "/var/log/nginx/example_error.log", "/etc/nginx/example_blocked.conf", "nginx-429", "Primary Nginx", "Default demo domain"},
+		{"api.example.com", "/var/log/nginx/api_access.log", "/var/log/nginx/api_error.log", "/etc/nginx/api_blocked.conf", "nginx-429", "API Gateway", "API service domain"},
+		{"test.example.com", "/var/log/nginx/test_access.log", "/var/log/nginx/test_error.log", "/etc/nginx/test_blocked.conf", "nginx-429", "Test Server", "Testing/Staging domain"},
+		{"domain.com", "/var/log/nginx/domain_access.log", "/var/log/nginx/domain_error.log", "/etc/nginx/domain_blocked.conf", "nginx-429", "Secondary Nginx", "Backup site domain"},
+	}
+
+	var ids []int64
+	for _, d := range domains {
+		var id int64
+		err := s.db.QueryRow("SELECT id FROM domains WHERE domain_name = ?", d.Name).Scan(&id)
+		if err == nil {
+			ids = append(ids, id)
+			continue
+		}
+
+		result, err := s.db.Exec(`
+			INSERT INTO domains (domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+		`, d.Name, d.AccessLog, d.ErrorLog, d.BlockFile, d.Jail, d.Server, d.Desc)
+		if err != nil {
+			return nil, err
+		}
+		newID, _ := result.LastInsertId()
+		ids = append(ids, newID)
+	}
+	return ids, nil
+}
+
+func (s *DemoService) seedBans(domainIDs []int64) error {
 	now := time.Now()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -144,8 +188,8 @@ func (s *DemoService) seedBans() error {
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO bans (ip_address, country, country_code, region, city, asn, isp, jail, reason,
-			ban_time, unban_time, ban_duration, request_count, violation_count, is_active)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ban_time, unban_time, ban_duration, request_count, violation_count, is_active, domain_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -158,6 +202,7 @@ func (s *DemoService) seedBans() error {
 		ip := randomIP()
 		banTime := now.Add(-time.Duration(rand.Intn(7200)) * time.Second) // within last 2 hours
 		duration := []int{3600, 7200, 14400, 86400}[rand.Intn(4)]
+		domainID := domainIDs[rand.Intn(len(domainIDs))]
 
 		_, err := stmt.Exec(
 			ip, c.Name, c.Code, "Region-"+fmt.Sprint(rand.Intn(10)),
@@ -167,7 +212,7 @@ func (s *DemoService) seedBans() error {
 			demoJails[rand.Intn(len(demoJails))],
 			demoReasons[rand.Intn(len(demoReasons))],
 			banTime, nil, duration,
-			50+rand.Intn(500), 5+rand.Intn(100), true,
+			50+rand.Intn(500), 5+rand.Intn(100), true, domainID,
 		)
 		if err != nil {
 			return err
@@ -181,6 +226,7 @@ func (s *DemoService) seedBans() error {
 		banTime := now.Add(-time.Duration(rand.Intn(720)) * time.Hour) // within last 30 days
 		duration := []int{3600, 7200, 14400, 86400}[rand.Intn(4)]
 		unbanTime := banTime.Add(time.Duration(duration) * time.Second)
+		domainID := domainIDs[rand.Intn(len(domainIDs))]
 
 		_, err := stmt.Exec(
 			ip, c.Name, c.Code, "Region-"+fmt.Sprint(rand.Intn(10)),
@@ -190,7 +236,7 @@ func (s *DemoService) seedBans() error {
 			demoJails[rand.Intn(len(demoJails))],
 			demoReasons[rand.Intn(len(demoReasons))],
 			banTime, unbanTime, duration,
-			50+rand.Intn(500), 5+rand.Intn(100), false,
+			50+rand.Intn(500), 5+rand.Intn(100), false, domainID,
 		)
 		if err != nil {
 			return err
@@ -200,7 +246,7 @@ func (s *DemoService) seedBans() error {
 	return tx.Commit()
 }
 
-func (s *DemoService) seedTrafficStats() error {
+func (s *DemoService) seedTrafficStats(domainIDs []int64) error {
 	now := time.Now()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -209,51 +255,53 @@ func (s *DemoService) seedTrafficStats() error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO traffic_stats (timestamp, total_requests, unique_ips, status_429, status_403, avg_response_time, period)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO traffic_stats (timestamp, total_requests, unique_ips, status_429, status_403, avg_response_time, period, domain_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	// Minute-level stats for last 2 hours
-	for i := 0; i < 120; i++ {
-		ts := now.Add(-time.Duration(i) * time.Minute)
-		baseReqs := 100 + rand.Intn(400)
-		// Simulate traffic spike
-		if i >= 30 && i <= 45 {
-			baseReqs = 500 + rand.Intn(1000)
+	for _, domainID := range domainIDs {
+		// Minute-level stats for last 2 hours
+		for i := 0; i < 120; i++ {
+			ts := now.Add(-time.Duration(i) * time.Minute)
+			baseReqs := 100 + rand.Intn(400)
+			// Simulate traffic spike
+			if i >= 30 && i <= 45 {
+				baseReqs = 500 + rand.Intn(1000)
+			}
+			stmt.Exec(ts, baseReqs, 20+rand.Intn(80), rand.Intn(baseReqs/10), rand.Intn(5), 50+rand.Float64()*200, "minute", domainID)
 		}
-		stmt.Exec(ts, baseReqs, 20+rand.Intn(80), rand.Intn(baseReqs/10), rand.Intn(5), 50+rand.Float64()*200, "minute")
-	}
 
-	// Hour-level stats for last 7 days
-	for i := 0; i < 168; i++ {
-		ts := now.Add(-time.Duration(i) * time.Hour)
-		baseReqs := 5000 + rand.Intn(15000)
-		// Day/night pattern
-		hour := ts.Hour()
-		if hour >= 2 && hour <= 6 {
-			baseReqs = 2000 + rand.Intn(3000) // Low traffic at night
+		// Hour-level stats for last 7 days
+		for i := 0; i < 168; i++ {
+			ts := now.Add(-time.Duration(i) * time.Hour)
+			baseReqs := 5000 + rand.Intn(15000)
+			// Day/night pattern
+			hour := ts.Hour()
+			if hour >= 2 && hour <= 6 {
+				baseReqs = 2000 + rand.Intn(3000) // Low traffic at night
+			}
+			if hour >= 10 && hour <= 16 {
+				baseReqs = 10000 + rand.Intn(10000) // High traffic during day
+			}
+			stmt.Exec(ts, baseReqs, 500+rand.Intn(2000), rand.Intn(baseReqs/20), rand.Intn(50), 30+rand.Float64()*150, "hour", domainID)
 		}
-		if hour >= 10 && hour <= 16 {
-			baseReqs = 10000 + rand.Intn(10000) // High traffic during day
-		}
-		stmt.Exec(ts, baseReqs, 500+rand.Intn(2000), rand.Intn(baseReqs/20), rand.Intn(50), 30+rand.Float64()*150, "hour")
-	}
 
-	// Day-level stats for last 30 days
-	for i := 0; i < 30; i++ {
-		ts := now.Add(-time.Duration(i) * 24 * time.Hour)
-		baseReqs := 100000 + rand.Intn(200000)
-		stmt.Exec(ts, baseReqs, 5000+rand.Intn(10000), rand.Intn(baseReqs/50), rand.Intn(200), 40+rand.Float64()*120, "day")
+		// Day-level stats for last 30 days
+		for i := 0; i < 30; i++ {
+			ts := now.Add(-time.Duration(i) * 24 * time.Hour)
+			baseReqs := 100000 + rand.Intn(200000)
+			stmt.Exec(ts, baseReqs, 5000+rand.Intn(10000), rand.Intn(baseReqs/50), rand.Intn(200), 40+rand.Float64()*120, "day", domainID)
+		}
 	}
 
 	return tx.Commit()
 }
 
-func (s *DemoService) seedWhitelist() error {
+func (s *DemoService) seedWhitelist(domainIDs []int64) error {
 	entries := []struct{ IP, Desc string }{
 		{"10.0.0.1", "Internal monitoring server"},
 		{"192.168.1.1", "Office gateway"},
@@ -264,15 +312,17 @@ func (s *DemoService) seedWhitelist() error {
 	}
 
 	for _, e := range entries {
-		s.db.Exec(
-			"INSERT OR IGNORE INTO whitelist (ip_address, description, added_by) VALUES (?, ?, 'admin')",
-			e.IP, e.Desc,
-		)
+		for _, domainID := range domainIDs {
+			s.db.Exec(
+				"INSERT OR IGNORE INTO whitelist (ip_address, description, added_by, domain_id) VALUES (?, ?, 'admin', ?)",
+				e.IP, e.Desc, domainID,
+			)
+		}
 	}
 	return nil
 }
 
-func (s *DemoService) seedAuditLogs() error {
+func (s *DemoService) seedAuditLogs(domainIDs []int64) error {
 	now := time.Now()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -281,7 +331,7 @@ func (s *DemoService) seedAuditLogs() error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		"INSERT INTO audit_logs (user_id, username, action, target, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO audit_logs (user_id, username, action, target, details, ip_address, domain_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 	)
 	if err != nil {
 		return err
@@ -292,7 +342,8 @@ func (s *DemoService) seedAuditLogs() error {
 		ts := now.Add(-time.Duration(rand.Intn(720)) * time.Hour)
 		a := demoAuditActions[rand.Intn(len(demoAuditActions))]
 		target := fmt.Sprintf(a.Target, rand.Intn(255))
-		stmt.Exec(1, "admin", a.Action, target, "{}", "127.0.0.1", ts)
+		domainID := domainIDs[rand.Intn(len(domainIDs))]
+		stmt.Exec(1, "admin", a.Action, target, "{}", "127.0.0.1", domainID, ts)
 	}
 
 	return tx.Commit()

@@ -18,57 +18,98 @@ func NewDashboardService(db *database.DB) *DashboardService {
 	return &DashboardService{db: db}
 }
 
-// GetStats returns aggregated dashboard statistics.
-func (s *DashboardService) GetStats() (*models.DashboardStats, error) {
+// GetStats returns aggregated dashboard statistics scoped by global filters.
+func (s *DashboardService) GetStats(filter models.GlobalFilter) (*models.DashboardStats, error) {
 	stats := &models.DashboardStats{}
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	hourAgo := now.Add(-1 * time.Hour)
 	dayAgo := now.Add(-24 * time.Hour)
 
-	// Traffic stats from traffic_stats table
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'hour'",
-		todayStart,
-	).Scan(&stats.TotalRequestsToday)
+	// Scoping helper for traffic_stats
+	applyFilter := func(query string, defaultTime time.Time) (string, []interface{}) {
+		where := "timestamp >= ?"
+		args := []interface{}{defaultTime}
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		hourAgo,
-	).Scan(&stats.RequestsLastHour)
+		if filter.StartTime != nil {
+			if filter.StartTime.After(defaultTime) {
+				args[0] = *filter.StartTime
+			}
+		}
+		if filter.EndTime != nil {
+			where += " AND timestamp <= ?"
+			args = append(args, *filter.EndTime)
+		}
+		if filter.DomainID > 0 {
+			where += " AND domain_id = ?"
+			args = append(args, filter.DomainID)
+		}
 
-	// Rate limiting
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'hour'",
-		todayStart,
-	).Scan(&stats.Total429Today)
+		fullQuery := fmt.Sprintf(query, where)
+		return fullQuery, args
+	}
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		hourAgo,
-	).Scan(&stats.Count429LastHour)
+	// Scoping helper for bans table
+	applyBanFilter := func(query string, field string, defaultTime time.Time) (string, []interface{}) {
+		where := fmt.Sprintf("%s >= ?", field)
+		args := []interface{}{defaultTime}
 
-	// Ban stats
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE ban_time >= ?",
-		todayStart,
-	).Scan(&stats.TotalBansToday)
+		if filter.StartTime != nil {
+			if filter.StartTime.After(defaultTime) {
+				args[0] = *filter.StartTime
+			}
+		}
+		if filter.EndTime != nil {
+			where += fmt.Sprintf(" AND %s <= ?", field)
+			args = append(args, *filter.EndTime)
+		}
+		if filter.DomainID > 0 {
+			where += " AND domain_id = ?"
+			args = append(args, filter.DomainID)
+		}
 
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE is_active = 1",
-	).Scan(&stats.ActiveBans)
+		fullQuery := fmt.Sprintf(query, where)
+		return fullQuery, args
+	}
 
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE ban_time >= ?",
-		dayAgo,
-	).Scan(&stats.Bans24h)
+	// Traffic stats today
+	q, args := applyFilter("SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE %s AND period = 'hour'", todayStart)
+	s.db.QueryRow(q, args...).Scan(&stats.TotalRequestsToday)
 
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE unban_time IS NOT NULL AND unban_time >= ?",
-		todayStart,
-	).Scan(&stats.UnbansToday)
+	// Requests last hour
+	q, args = applyFilter("SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE %s AND period = 'minute'", hourAgo)
+	s.db.QueryRow(q, args...).Scan(&stats.RequestsLastHour)
 
-	// System status (will be updated by system service)
+	// Rate limiting 429 today
+	q, args = applyFilter("SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE %s AND period = 'hour'", todayStart)
+	s.db.QueryRow(q, args...).Scan(&stats.Total429Today)
+
+	// Count 429 last hour
+	q, args = applyFilter("SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE %s AND period = 'minute'", hourAgo)
+	s.db.QueryRow(q, args...).Scan(&stats.Count429LastHour)
+
+	// Active bans count
+	activeBanQuery := "SELECT COUNT(*) FROM bans WHERE is_active = 1"
+	var activeBanArgs []interface{}
+	if filter.DomainID > 0 {
+		activeBanQuery += " AND domain_id = ?"
+		activeBanArgs = append(activeBanArgs, filter.DomainID)
+	}
+	s.db.QueryRow(activeBanQuery, activeBanArgs...).Scan(&stats.ActiveBans)
+
+	// Bans today
+	q, args = applyBanFilter("SELECT COUNT(*) FROM bans WHERE %s", "ban_time", todayStart)
+	s.db.QueryRow(q, args...).Scan(&stats.TotalBansToday)
+
+	// Bans 24h
+	q, args = applyBanFilter("SELECT COUNT(*) FROM bans WHERE %s", "ban_time", dayAgo)
+	s.db.QueryRow(q, args...).Scan(&stats.Bans24h)
+
+	// Unbans today
+	q, args = applyBanFilter("SELECT COUNT(*) FROM bans WHERE unban_time IS NOT NULL AND %s", "unban_time", todayStart)
+	s.db.QueryRow(q, args...).Scan(&stats.UnbansToday)
+
+	// System status
 	stats.NginxStatus = "running"
 	stats.Fail2BanStatus = "running"
 	stats.DatabaseStatus = "running"
@@ -98,54 +139,78 @@ func (s *DashboardService) GetSystemStatus() *models.SystemStatus {
 	}
 }
 
-// GetAttackStatus evaluates the current threat level.
-func (s *DashboardService) GetAttackStatus() (*models.AttackStatus, error) {
+// GetAttackStatus evaluates the current threat level scoped by global filters.
+func (s *DashboardService) GetAttackStatus(filter models.GlobalFilter) (*models.AttackStatus, error) {
 	status := &models.AttackStatus{}
 	now := time.Now()
 	oneMinAgo := now.Add(-1 * time.Minute)
 	fiveMinAgo := now.Add(-5 * time.Minute)
 
+	// Scoping helper for traffic_stats
+	applyFilter := func(query string, defaultTime time.Time) (string, []interface{}) {
+		where := "timestamp >= ?"
+		args := []interface{}{defaultTime}
+		if filter.StartTime != nil {
+			if filter.StartTime.After(defaultTime) {
+				args[0] = *filter.StartTime
+			}
+		}
+		if filter.EndTime != nil {
+			where += " AND timestamp <= ?"
+			args = append(args, *filter.EndTime)
+		}
+		if filter.DomainID > 0 {
+			where += " AND domain_id = ?"
+			args = append(args, filter.DomainID)
+		}
+		return fmt.Sprintf(query, where), args
+	}
+
+	// Scoping helper for bans
+	applyBanFilter := func(query string, defaultTime time.Time) (string, []interface{}) {
+		where := "ban_time >= ?"
+		args := []interface{}{defaultTime}
+		if filter.StartTime != nil {
+			if filter.StartTime.After(defaultTime) {
+				args[0] = *filter.StartTime
+			}
+		}
+		if filter.EndTime != nil {
+			where += " AND ban_time <= ?"
+			args = append(args, *filter.EndTime)
+		}
+		if filter.DomainID > 0 {
+			where += " AND domain_id = ?"
+			args = append(args, filter.DomainID)
+		}
+		return fmt.Sprintf(query, where), args
+	}
+
 	// Last minute stats
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		oneMinAgo,
-	).Scan(&status.RequestsLastMin)
+	q, args := applyFilter("SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE %s AND period = 'minute'", oneMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.RequestsLastMin)
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(unique_ips), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		oneMinAgo,
-	).Scan(&status.UniqueIPsLastMin)
+	q, args = applyFilter("SELECT COALESCE(SUM(unique_ips), 0) FROM traffic_stats WHERE %s AND period = 'minute'", oneMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.UniqueIPsLastMin)
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		oneMinAgo,
-	).Scan(&status.Count429LastMin)
+	q, args = applyFilter("SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE %s AND period = 'minute'", oneMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.Count429LastMin)
 
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE ban_time >= ?",
-		oneMinAgo,
-	).Scan(&status.BansLastMin)
+	q, args = applyBanFilter("SELECT COUNT(*) FROM bans WHERE %s", oneMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.BansLastMin)
 
 	// Last 5 minutes stats
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		fiveMinAgo,
-	).Scan(&status.RequestsLast5Min)
+	q, args = applyFilter("SELECT COALESCE(SUM(total_requests), 0) FROM traffic_stats WHERE %s AND period = 'minute'", fiveMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.RequestsLast5Min)
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(unique_ips), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		fiveMinAgo,
-	).Scan(&status.UniqueIPsLast5Min)
+	q, args = applyFilter("SELECT COALESCE(SUM(unique_ips), 0) FROM traffic_stats WHERE %s AND period = 'minute'", fiveMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.UniqueIPsLast5Min)
 
-	s.db.QueryRow(
-		"SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE timestamp >= ? AND period = 'minute'",
-		fiveMinAgo,
-	).Scan(&status.Count429Last5Min)
+	q, args = applyFilter("SELECT COALESCE(SUM(status_429), 0) FROM traffic_stats WHERE %s AND period = 'minute'", fiveMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.Count429Last5Min)
 
-	s.db.QueryRow(
-		"SELECT COUNT(*) FROM bans WHERE ban_time >= ?",
-		fiveMinAgo,
-	).Scan(&status.BansLast5Min)
+	q, args = applyBanFilter("SELECT COUNT(*) FROM bans WHERE %s", fiveMinAgo)
+	s.db.QueryRow(q, args...).Scan(&status.BansLast5Min)
 
 	// Determine threat level
 	status.Level = "normal"
@@ -159,17 +224,34 @@ func (s *DashboardService) GetAttackStatus() (*models.AttackStatus, error) {
 	return status, nil
 }
 
-// GetTrafficTrends returns traffic data for charts.
-func (s *DashboardService) GetTrafficTrends(period string, hours int) ([]models.TrafficStat, error) {
+// GetTrafficTrends returns traffic data for charts, filtered by domain and range.
+func (s *DashboardService) GetTrafficTrends(filter models.GlobalFilter, period string, hours int) ([]models.TrafficStat, error) {
 	if hours < 1 {
 		hours = 24
 	}
 	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+	if filter.StartTime != nil {
+		since = *filter.StartTime
+	}
 
-	rows, err := s.db.Query(
-		"SELECT id, timestamp, total_requests, unique_ips, status_429, status_403, avg_response_time, period FROM traffic_stats WHERE period = ? AND timestamp >= ? ORDER BY timestamp ASC",
-		period, since,
+	where := "period = ? AND timestamp >= ?"
+	args := []interface{}{period, since}
+
+	if filter.EndTime != nil {
+		where += " AND timestamp <= ?"
+		args = append(args, *filter.EndTime)
+	}
+	if filter.DomainID > 0 {
+		where += " AND domain_id = ?"
+		args = append(args, filter.DomainID)
+	}
+
+	query := fmt.Sprintf(
+		"SELECT id, timestamp, total_requests, unique_ips, status_429, status_403, avg_response_time, period FROM traffic_stats WHERE %s ORDER BY timestamp ASC",
+		where,
 	)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traffic trends: %w", err)
 	}
@@ -186,19 +268,37 @@ func (s *DashboardService) GetTrafficTrends(period string, hours int) ([]models.
 	return stats, nil
 }
 
-// GetCountryStats returns analytics grouped by country.
-func (s *DashboardService) GetCountryStats() ([]models.CountryStats, error) {
-	rows, err := s.db.Query(`
+// GetCountryStats returns analytics grouped by country, filtered by domain and range.
+func (s *DashboardService) GetCountryStats(filter models.GlobalFilter) ([]models.CountryStats, error) {
+	where := "country != ''"
+	var args []interface{}
+
+	if filter.DomainID > 0 {
+		where += " AND domain_id = ?"
+		args = append(args, filter.DomainID)
+	}
+	if filter.StartTime != nil {
+		where += " AND ban_time >= ?"
+		args = append(args, *filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		where += " AND ban_time <= ?"
+		args = append(args, *filter.EndTime)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT country, country_code,
 			COUNT(*) as ban_count,
 			COALESCE(SUM(request_count), 0) as total_requests,
 			COALESCE(SUM(violation_count), 0) as total_violations
 		FROM bans
-		WHERE country != ''
+		WHERE %s
 		GROUP BY country_code
 		ORDER BY ban_count DESC
 		LIMIT 50
-	`)
+	`, where)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -15,12 +15,38 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// Global filters reference accessed by fetch wrapper
+export const currentFilters = {
+  domainId: 0,
+  startTime: "",
+  endTime: "",
+};
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  // Auto-inject filters into GET requests
+  const method = (init.method || "GET").toUpperCase();
+  if (method === "GET") {
+    // Avoid applying filters on loading the domains list itself to prevent recursion
+    if (!path.includes("/api/domains")) {
+      const url = new URL(path, "http://localhost"); // dummy host to parse relative path
+      if (currentFilters.domainId > 0) {
+        url.searchParams.set("domain_id", String(currentFilters.domainId));
+      }
+      if (currentFilters.startTime) {
+        url.searchParams.set("start_time", currentFilters.startTime);
+      }
+      if (currentFilters.endTime) {
+        url.searchParams.set("end_time", currentFilters.endTime);
+      }
+      path = url.pathname + url.search;
+    }
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });

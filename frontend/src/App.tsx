@@ -11,6 +11,7 @@ import { LiveRequestsPage } from "./features/live/LiveRequestsPage";
 import { ReportsPage } from "./features/reports/ReportsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { WhitelistPage } from "./features/whitelist/WhitelistPage";
+import { DomainsPage } from "./features/domains/DomainsPage";
 import { api, getToken, setToken } from "./services/api";
 import type { User } from "./types/api";
 
@@ -39,6 +40,7 @@ export function App() {
       {page === "audit" && <AuditPage />}
       {page === "settings" && <SettingsPage />}
       {page === "reports" && <ReportsPage />}
+      {page === "domains" && <DomainsPage />}
     </AppShell>
   );
 }

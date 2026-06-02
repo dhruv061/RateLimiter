@@ -19,8 +19,8 @@ func NewAuditService(db *database.DB) *AuditService {
 	return &AuditService{db: db}
 }
 
-// Log records a new audit entry.
-func (s *AuditService) Log(userID int64, username, action, target string, details interface{}, clientIP string) error {
+// Log records a new audit entry with a domain context.
+func (s *AuditService) Log(domainID int64, userID int64, username, action, target string, details interface{}, clientIP string) error {
 	detailsStr := ""
 	if details != nil {
 		b, _ := json.Marshal(details)
@@ -28,14 +28,14 @@ func (s *AuditService) Log(userID int64, username, action, target string, detail
 	}
 
 	_, err := s.db.Exec(
-		"INSERT INTO audit_logs (user_id, username, action, target, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, username, action, target, detailsStr, clientIP,
+		"INSERT INTO audit_logs (user_id, username, action, target, details, ip_address, domain_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, username, action, target, detailsStr, clientIP, domainID,
 	)
 	return err
 }
 
-// GetLogs returns paginated audit logs.
-func (s *AuditService) GetLogs(page, perPage int, search, action string) (*models.PaginatedResponse, error) {
+// GetLogs returns paginated audit logs scoped by GlobalFilter.
+func (s *AuditService) GetLogs(filter models.GlobalFilter, page, perPage int, search, action string) (*models.PaginatedResponse, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -56,10 +56,23 @@ func (s *AuditService) GetLogs(page, perPage int, search, action string) (*model
 		args = append(args, action)
 	}
 
+	if filter.DomainID > 0 {
+		where += " AND domain_id = ?"
+		args = append(args, filter.DomainID)
+	}
+	if filter.StartTime != nil {
+		where += " AND created_at >= ?"
+		args = append(args, *filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		where += " AND created_at <= ?"
+		args = append(args, *filter.EndTime)
+	}
+
 	var total int64
 	s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", where), args...).Scan(&total)
 
-	query := fmt.Sprintf("SELECT id, user_id, username, action, target, details, ip_address, created_at FROM audit_logs %s ORDER BY created_at DESC LIMIT ? OFFSET ?", where)
+	query := fmt.Sprintf("SELECT id, user_id, username, action, target, details, ip_address, domain_id, created_at FROM audit_logs %s ORDER BY created_at DESC LIMIT ? OFFSET ?", where)
 	args = append(args, perPage, offset)
 
 	rows, err := s.db.Query(query, args...)
@@ -71,7 +84,7 @@ func (s *AuditService) GetLogs(page, perPage int, search, action string) (*model
 	var logs []models.AuditLog
 	for rows.Next() {
 		var l models.AuditLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.DomainID, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -87,16 +100,22 @@ func (s *AuditService) GetLogs(page, perPage int, search, action string) (*model
 	}, nil
 }
 
-// GetRecentLogs returns the most recent audit logs.
-func (s *AuditService) GetRecentLogs(limit int) ([]models.AuditLog, error) {
+// GetRecentLogs returns the most recent audit logs scoped by domain.
+func (s *AuditService) GetRecentLogs(domainID int64, limit int) ([]models.AuditLog, error) {
 	if limit < 1 {
 		limit = 10
 	}
 
-	rows, err := s.db.Query(
-		"SELECT id, user_id, username, action, target, details, ip_address, created_at FROM audit_logs ORDER BY created_at DESC LIMIT ?",
-		limit,
-	)
+	query := "SELECT id, user_id, username, action, target, details, ip_address, domain_id, created_at FROM audit_logs"
+	var args []interface{}
+	if domainID > 0 {
+		query += " WHERE domain_id = ?"
+		args = append(args, domainID)
+	}
+	query += " ORDER BY created_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +124,7 @@ func (s *AuditService) GetRecentLogs(limit int) ([]models.AuditLog, error) {
 	var logs []models.AuditLog
 	for rows.Next() {
 		var l models.AuditLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.DomainID, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)
@@ -113,12 +132,17 @@ func (s *AuditService) GetRecentLogs(limit int) ([]models.AuditLog, error) {
 	return logs, nil
 }
 
-// ExportLogs returns all logs in the given time range.
-func (s *AuditService) ExportLogs(from, to time.Time) ([]models.AuditLog, error) {
-	rows, err := s.db.Query(
-		"SELECT id, user_id, username, action, target, details, ip_address, created_at FROM audit_logs WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC",
-		from, to,
-	)
+// ExportLogs returns all logs in the given time range and scoped by domain.
+func (s *AuditService) ExportLogs(domainID int64, from, to time.Time) ([]models.AuditLog, error) {
+	query := "SELECT id, user_id, username, action, target, details, ip_address, domain_id, created_at FROM audit_logs WHERE created_at BETWEEN ? AND ?"
+	args := []interface{}{from, to}
+	if domainID > 0 {
+		query += " AND domain_id = ?"
+		args = append(args, domainID)
+	}
+	query += " ORDER BY created_at DESC"
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +151,7 @@ func (s *AuditService) ExportLogs(from, to time.Time) ([]models.AuditLog, error)
 	var logs []models.AuditLog
 	for rows.Next() {
 		var l models.AuditLog
-		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.Action, &l.Target, &l.Details, &l.IPAddress, &l.DomainID, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)

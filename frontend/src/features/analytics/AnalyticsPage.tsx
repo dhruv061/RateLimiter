@@ -4,6 +4,7 @@ import { Card, CardTitle } from "../../components/ui/card";
 import { EmptyRow, Table, Td, Th } from "../../components/ui/table";
 import { useApi } from "../../hooks/useApi";
 import type { CountryStats, TopOffender, TrafficStat } from "../../types/api";
+import { HelpCircle } from "lucide-react";
 
 export function AnalyticsPage() {
   const { data: trends } = useApi<TrafficStat[]>("/api/analytics/traffic-trends?period=hour&hours=72", []);
@@ -15,7 +16,15 @@ export function AnalyticsPage() {
       <PageHeader title="Analytics" subtitle="Traffic trends, geographic distribution, and abusive clients." />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardTitle>Requests and 429s</CardTitle>
+          <div className="mb-5 flex items-center gap-1.5">
+            <CardTitle>Requests and 429s</CardTitle>
+            <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+              <HelpCircle className="h-3.5 w-3.5" />
+              <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+                Comparison chart of total HTTP requests (blue) vs rate-limited HTTP 429 hits (red).
+              </span>
+            </span>
+          </div>
           <div className="mt-5 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trends}>
@@ -30,7 +39,15 @@ export function AnalyticsPage() {
           </div>
         </Card>
         <Card>
-          <CardTitle>Country Bans</CardTitle>
+          <div className="mb-5 flex items-center gap-1.5">
+            <CardTitle>Country Bans</CardTitle>
+            <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+              <HelpCircle className="h-3.5 w-3.5" />
+              <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+                Geographic distribution of firewall blocks by country codes.
+              </span>
+            </span>
+          </div>
           <div className="mt-5 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={countries.slice(0, 8)}>
@@ -44,7 +61,15 @@ export function AnalyticsPage() {
         </Card>
       </div>
       <Card className="mt-4 p-0">
-        <div className="border-b p-4 font-medium">Top Offenders</div>
+        <div className="flex items-center gap-2 border-b p-4 font-medium">
+          Top Offenders
+          <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+            <HelpCircle className="h-3.5 w-3.5" />
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border bg-card p-2 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+              Abusive clients with highest request counts, rate-limit hits, and ban history.
+            </span>
+          </span>
+        </div>
         <div className="overflow-auto">
           <Table>
             <thead>

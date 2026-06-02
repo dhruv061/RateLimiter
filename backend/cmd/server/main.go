@@ -12,6 +12,7 @@ import (
 	"fail2ban-dashboard/internal/auth"
 	"fail2ban-dashboard/internal/config"
 	"fail2ban-dashboard/internal/database"
+	"fail2ban-dashboard/internal/models"
 	"fail2ban-dashboard/internal/services"
 	"fail2ban-dashboard/internal/websocket"
 	"fail2ban-dashboard/pkg/response"
@@ -48,7 +49,7 @@ func main() {
 	go hub.Run()
 	go broadcastDashboardEvents(hub, db)
 
-	router := setupRouter(db, jwtManager, hub)
+	router := setupRouter(db, jwtManager, hub, cfg.DemoMode)
 
 	addr := ":" + cfg.AppPort
 	log.Printf("%s listening on %s", cfg.AppName, addr)
@@ -57,13 +58,15 @@ func main() {
 	}
 }
 
-func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hub) *gin.Engine {
+func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hub, demoMode bool) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), middleware.CORSMiddleware())
 
 	auditSvc := services.NewAuditService(db)
 	dashboardSvc := services.NewDashboardService(db)
 	banSvc := services.NewBanService(db)
+	domainSvc := services.NewDomainService(db, demoMode)
+
 	authHandler := handlers.NewAuthHandler(db, jwtManager)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardSvc)
 	bansHandler := handlers.NewBansHandler(banSvc, auditSvc)
@@ -74,6 +77,7 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 	liveHandler := handlers.NewLiveHandler()
 	systemHandler := handlers.NewSystemHandler()
 	reportsHandler := handlers.NewReportsHandler(dashboardSvc, banSvc, auditSvc)
+	domainHandler := handlers.NewDomainHandler(domainSvc)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -129,6 +133,11 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 
 			protected.GET("/reports/security", reportsHandler.SecurityReport)
 
+			// Domain Management endpoints
+			protected.GET("/domains", domainHandler.GetDomains)
+			protected.POST("/domains", domainHandler.CreateDomain)
+			protected.DELETE("/domains/:id", domainHandler.DeleteDomain)
+			protected.POST("/domains/validate", domainHandler.ValidateDomain)
 		}
 	}
 
@@ -148,10 +157,11 @@ func broadcastDashboardEvents(hub *websocket.Hub, db *database.DB) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if stats, err := dashboardSvc.GetStats(); err == nil {
+		var filter models.GlobalFilter // empty default scopes to all domains
+		if stats, err := dashboardSvc.GetStats(filter); err == nil {
 			hub.BroadcastEvent("dashboard.stats", stats)
 		}
-		if attack, err := dashboardSvc.GetAttackStatus(); err == nil {
+		if attack, err := dashboardSvc.GetAttackStatus(filter); err == nil {
 			hub.BroadcastEvent("security.attack_status", attack)
 		}
 		hub.BroadcastEvent("system.clients", map[string]int{"count": hub.ClientCount()})

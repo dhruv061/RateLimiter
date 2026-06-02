@@ -1,4 +1,4 @@
-import { Download, Eye, Search, ShieldCheck, Unlock } from "lucide-react";
+import { Download, Eye, Search, ShieldCheck, Unlock, HelpCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Badge } from "../../components/ui/badge";
@@ -46,7 +46,15 @@ export function BansPage({ history = false }: { history?: boolean }) {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search IP or country" />
           </div>
-          <Badge tone="info">{data.total.toLocaleString()} records</Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Badge tone="info">{data.total.toLocaleString()} records</Badge>
+            <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+              <HelpCircle className="h-4 w-4" />
+              <span className="pointer-events-none absolute bottom-full right-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded border bg-card p-2.5 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+                {history ? "Audit history of all banned and unbanned IP addresses on this domain." : "Active firewall blocks currently in effect on this domain."}
+              </span>
+            </span>
+          </div>
         </div>
         <div className="overflow-auto">
           <Table>

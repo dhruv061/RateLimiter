@@ -21,15 +21,16 @@ func NewWhitelistHandler(wlSvc *services.WhitelistService, auditSvc *services.Au
 	return &WhitelistHandler{wlSvc: wlSvc, auditSvc: auditSvc}
 }
 
-// GetAll returns all whitelist entries.
+// GetAll returns all whitelist entries scoped by global filters.
 func (h *WhitelistHandler) GetAll(c *gin.Context) {
+	filter := parseGlobalFilter(c)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "50"))
 	search := c.Query("search")
 
-	result, err := h.wlSvc.GetAll(page, perPage, search)
+	result, err := h.wlSvc.GetAll(filter, page, perPage, search)
 	if err != nil {
-		response.InternalError(c, "Failed to fetch whitelist")
+		response.InternalError(c, "Failed to fetch whitelist: "+err.Error())
 		return
 	}
 	response.OK(c, result)
@@ -43,15 +44,22 @@ func (h *WhitelistHandler) Add(c *gin.Context) {
 		return
 	}
 
+	// Use parsed domain_id from query if not specified in JSON
+	filter := parseGlobalFilter(c)
+	domainID := req.DomainID
+	if domainID == 0 {
+		domainID = filter.DomainID
+	}
+
 	username, _ := c.Get("username")
-	entry, err := h.wlSvc.Add(req.IPAddress, req.Description, username.(string))
+	entry, err := h.wlSvc.Add(domainID, req.IPAddress, req.Description, username.(string))
 	if err != nil {
 		response.BadRequest(c, "Failed to add whitelist entry: "+err.Error())
 		return
 	}
 
 	userID, _ := c.Get("user_id")
-	h.auditSvc.Log(userID.(int64), username.(string), "add_whitelist", req.IPAddress, nil, c.ClientIP())
+	h.auditSvc.Log(domainID, userID.(int64), username.(string), "add_whitelist", req.IPAddress, nil, c.ClientIP())
 
 	response.Created(c, entry)
 }
@@ -64,23 +72,33 @@ func (h *WhitelistHandler) Remove(c *gin.Context) {
 		return
 	}
 
+	// Lookup domain_id and IP address for auditing before deleting
+	entry, err := h.wlSvc.GetByID(id)
+	var domainID int64
+	var ipAddress string
+	if err == nil {
+		domainID = entry.DomainID
+		ipAddress = entry.IPAddress
+	}
+
 	if err := h.wlSvc.Remove(id); err != nil {
-		response.NotFound(c, "Whitelist entry not found")
+		response.NotFound(c, "Whitelist entry not found: "+err.Error())
 		return
 	}
 
 	userID, _ := c.Get("user_id")
 	username, _ := c.Get("username")
-	h.auditSvc.Log(userID.(int64), username.(string), "remove_whitelist", "", map[string]int64{"id": id}, c.ClientIP())
+	h.auditSvc.Log(domainID, userID.(int64), username.(string), "remove_whitelist", ipAddress, map[string]int64{"id": id}, c.ClientIP())
 
 	response.Message(c, "Whitelist entry removed")
 }
 
-// Export returns all whitelist entries for export.
+// Export returns all whitelist entries for export scoped by global filters.
 func (h *WhitelistHandler) Export(c *gin.Context) {
-	result, err := h.wlSvc.GetAll(1, 10000, "")
+	filter := parseGlobalFilter(c)
+	result, err := h.wlSvc.GetAll(filter, 1, 10000, "")
 	if err != nil {
-		response.InternalError(c, "Failed to export whitelist")
+		response.InternalError(c, "Failed to export whitelist: "+err.Error())
 		return
 	}
 	response.OK(c, result.Data)

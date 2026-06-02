@@ -17,9 +17,10 @@ func NewDashboardHandler(dashSvc *services.DashboardService) *DashboardHandler {
 	return &DashboardHandler{dashSvc: dashSvc}
 }
 
-// GetStats returns aggregated dashboard metrics.
+// GetStats returns aggregated dashboard metrics scoped by global filters.
 func (h *DashboardHandler) GetStats(c *gin.Context) {
-	stats, err := h.dashSvc.GetStats()
+	filter := parseGlobalFilter(c)
+	stats, err := h.dashSvc.GetStats(filter)
 	if err != nil {
 		response.InternalError(c, "Failed to fetch dashboard stats")
 		return
@@ -33,9 +34,10 @@ func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 	response.OK(c, status)
 }
 
-// GetAttackStatus returns the current threat level.
+// GetAttackStatus returns the current threat level scoped by global filters.
 func (h *DashboardHandler) GetAttackStatus(c *gin.Context) {
-	status, err := h.dashSvc.GetAttackStatus()
+	filter := parseGlobalFilter(c)
+	status, err := h.dashSvc.GetAttackStatus(filter)
 	if err != nil {
 		response.InternalError(c, "Failed to fetch attack status")
 		return

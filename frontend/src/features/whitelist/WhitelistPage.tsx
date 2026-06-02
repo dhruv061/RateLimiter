@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, HelpCircle } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { Button } from "../../components/ui/button";
@@ -33,7 +33,18 @@ export function WhitelistPage() {
 
   return (
     <>
-      <PageHeader title="Whitelist" subtitle="Trusted IPs that should not be banned." />
+      <PageHeader
+        title="Whitelist"
+        subtitle="Trusted IPs that should not be banned."
+        actions={
+          <span className="group relative cursor-pointer text-muted-foreground hover:text-foreground">
+            <HelpCircle className="h-5 w-5" />
+            <span className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-64 rounded border bg-card p-2.5 text-xs text-foreground shadow-lg opacity-0 transition-opacity group-hover:opacity-100 leading-normal font-normal">
+              Whitelisted IPs are exempt from all rate-limit bans and firewall rules on this domain.
+            </span>
+          </span>
+        }
+      />
       <Card className="mb-4">
         <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto]">
           <Input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="IP address" />

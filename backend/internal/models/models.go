@@ -33,6 +33,7 @@ type Ban struct {
 	RequestCount   int        `json:"request_count" db:"request_count"`
 	ViolationCount int        `json:"violation_count" db:"violation_count"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
+	DomainID       int64      `json:"domain_id" db:"domain_id"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 }
 
@@ -55,6 +56,7 @@ type WhitelistEntry struct {
 	IPAddress   string    `json:"ip_address" db:"ip_address"`
 	Description string    `json:"description" db:"description"`
 	AddedBy     string    `json:"added_by" db:"added_by"`
+	DomainID    int64     `json:"domain_id" db:"domain_id"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
@@ -67,6 +69,7 @@ type AuditLog struct {
 	Target    string    `json:"target" db:"target"`
 	Details   string    `json:"details" db:"details"`
 	IPAddress string    `json:"ip_address" db:"ip_address"`
+	DomainID  int64     `json:"domain_id" db:"domain_id"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
@@ -89,6 +92,7 @@ type TrafficStat struct {
 	Status403       int       `json:"status_403" db:"status_403"`
 	AvgResponseTime float64   `json:"avg_response_time" db:"avg_response_time"`
 	Period          string    `json:"period" db:"period"`
+	DomainID        int64     `json:"domain_id" db:"domain_id"`
 }
 
 // LiveRequest represents a single parsed Nginx access log entry.
@@ -201,6 +205,7 @@ type LoginResponse struct {
 type WhitelistRequest struct {
 	IPAddress   string `json:"ip_address" binding:"required"`
 	Description string `json:"description"`
+	DomainID    int64  `json:"domain_id"`
 }
 
 // BulkUnbanRequest is the payload for bulk unban.

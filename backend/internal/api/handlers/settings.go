@@ -44,7 +44,7 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	userID, _ := c.Get("user_id")
-	h.auditSvc.Log(userID.(int64), username.(string), "update_settings", "", req.Settings, c.ClientIP())
+	h.auditSvc.Log(0, userID.(int64), username.(string), "update_settings", "", req.Settings, c.ClientIP())
 
 	response.Message(c, "Settings updated successfully")
 }

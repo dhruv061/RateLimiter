@@ -64,6 +64,21 @@ func (db *DB) migrate() error {
 			last_login DATETIME
 		)`,
 
+		`CREATE TABLE IF NOT EXISTS domains (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			domain_name TEXT UNIQUE NOT NULL,
+			access_log_path TEXT NOT NULL,
+			error_log_path TEXT NOT NULL,
+			blocked_ip_file_path TEXT NOT NULL,
+			fail2ban_jail_name TEXT NOT NULL,
+			server_name TEXT DEFAULT '',
+			description TEXT DEFAULT '',
+			is_valid BOOLEAN DEFAULT 0,
+			last_validated_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		`CREATE TABLE IF NOT EXISTS bans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			ip_address TEXT NOT NULL,
@@ -81,14 +96,16 @@ func (db *DB) migrate() error {
 			request_count INTEGER DEFAULT 0,
 			violation_count INTEGER DEFAULT 0,
 			is_active BOOLEAN DEFAULT 1,
+			domain_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS whitelist (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			ip_address TEXT UNIQUE NOT NULL,
+			ip_address TEXT NOT NULL,
 			description TEXT DEFAULT '',
 			added_by TEXT DEFAULT '',
+			domain_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
@@ -100,6 +117,7 @@ func (db *DB) migrate() error {
 			target TEXT DEFAULT '',
 			details TEXT DEFAULT '',
 			ip_address TEXT DEFAULT '',
+			domain_id INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
@@ -120,7 +138,8 @@ func (db *DB) migrate() error {
 			status_429 INTEGER DEFAULT 0,
 			status_403 INTEGER DEFAULT 0,
 			avg_response_time REAL DEFAULT 0,
-			period TEXT NOT NULL
+			period TEXT NOT NULL,
+			domain_id INTEGER DEFAULT 0
 		)`,
 
 		// Indexes
@@ -128,9 +147,25 @@ func (db *DB) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_bans_active ON bans(is_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_bans_ban_time ON bans(ban_time)`,
 		`CREATE INDEX IF NOT EXISTS idx_bans_active_time ON bans(is_active, ban_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_bans_domain ON bans(domain_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_domain ON audit_logs(domain_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_traffic_timestamp ON traffic_stats(timestamp, period)`,
+		`CREATE INDEX IF NOT EXISTS idx_traffic_domain ON traffic_stats(domain_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_whitelist_ip ON whitelist(ip_address)`,
+		`CREATE INDEX IF NOT EXISTS idx_whitelist_domain ON whitelist(domain_id)`,
+	}
+
+	// Run safe ALTER TABLE additions for existing databases that lack domain_id columns.
+	alterMigrations := []string{
+		"ALTER TABLE bans ADD COLUMN domain_id INTEGER DEFAULT 0",
+		"ALTER TABLE whitelist ADD COLUMN domain_id INTEGER DEFAULT 0",
+		"ALTER TABLE audit_logs ADD COLUMN domain_id INTEGER DEFAULT 0",
+		"ALTER TABLE traffic_stats ADD COLUMN domain_id INTEGER DEFAULT 0",
+	}
+	for _, alt := range alterMigrations {
+		// Ignore "duplicate column name" errors for idempotency.
+		db.Exec(alt)
 	}
 
 	for _, m := range migrations {
@@ -195,4 +230,35 @@ func (db *DB) SeedDefaultSettings() error {
 	}
 
 	return nil
+}
+
+// SeedDefaultDomain creates a default demo domain if none exist.
+func (db *DB) SeedDefaultDomain() (int64, error) {
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM domains").Scan(&count)
+	if count > 0 {
+		var id int64
+		db.QueryRow("SELECT id FROM domains ORDER BY id ASC LIMIT 1").Scan(&id)
+		return id, nil
+	}
+
+	result, err := db.Exec(
+		`INSERT INTO domains (domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"example.com",
+		"/var/log/nginx/example_access.log",
+		"/var/log/nginx/example_error.log",
+		"/etc/nginx/example_blocked.conf",
+		"nginx-429",
+		"Primary Server",
+		"Default demo domain",
+		true,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to seed default domain: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+	log.Printf("✅ Default domain 'example.com' created (id=%d)", id)
+	return id, nil
 }
