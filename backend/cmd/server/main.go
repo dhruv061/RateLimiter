@@ -67,6 +67,8 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 	banSvc := services.NewBanService(db)
 	domainSvc := services.NewDomainService(db, demoMode)
 
+	setupSvc := services.NewSetupService(db, demoMode)
+
 	authHandler := handlers.NewAuthHandler(db, jwtManager)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardSvc)
 	bansHandler := handlers.NewBansHandler(banSvc, auditSvc)
@@ -78,6 +80,7 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 	systemHandler := handlers.NewSystemHandler()
 	reportsHandler := handlers.NewReportsHandler(dashboardSvc, banSvc, auditSvc)
 	domainHandler := handlers.NewDomainHandler(domainSvc)
+	setupHandler := handlers.NewSetupHandler(setupSvc)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -138,6 +141,14 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 			protected.POST("/domains", domainHandler.CreateDomain)
 			protected.DELETE("/domains/:id", domainHandler.DeleteDomain)
 			protected.POST("/domains/validate", domainHandler.ValidateDomain)
+
+			// Setup Wizard endpoints
+			protected.GET("/setup/fail2ban-status", setupHandler.GetFail2BanStatus)
+			protected.GET("/setup/discover-domains", setupHandler.DiscoverNginxDomains)
+			protected.POST("/setup/generate-config", setupHandler.GenerateConfig)
+			protected.POST("/setup/validate", setupHandler.ValidateSetup)
+			protected.POST("/setup/generate-cleanup", setupHandler.GenerateCleanupScript)
+			protected.POST("/setup/validate-removal", setupHandler.ValidateRemoval)
 		}
 	}
 

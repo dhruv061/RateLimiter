@@ -162,6 +162,12 @@ func (db *DB) migrate() error {
 		"ALTER TABLE whitelist ADD COLUMN domain_id INTEGER DEFAULT 0",
 		"ALTER TABLE audit_logs ADD COLUMN domain_id INTEGER DEFAULT 0",
 		"ALTER TABLE traffic_stats ADD COLUMN domain_id INTEGER DEFAULT 0",
+		// Setup wizard columns
+		"ALTER TABLE domains ADD COLUMN status TEXT DEFAULT 'active'",
+		"ALTER TABLE domains ADD COLUMN rate_limit INTEGER DEFAULT 5",
+		"ALTER TABLE domains ADD COLUMN burst_size INTEGER DEFAULT 5",
+		"ALTER TABLE domains ADD COLUMN ban_time INTEGER DEFAULT 86400",
+		"ALTER TABLE domains ADD COLUMN generated_config TEXT DEFAULT ''",
 	}
 	for _, alt := range alterMigrations {
 		// Ignore "duplicate column name" errors for idempotency.

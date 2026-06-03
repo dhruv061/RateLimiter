@@ -35,7 +35,8 @@ export type PageKey =
 	| "audit"
 	| "settings"
 	| "reports"
-	| "domains";
+	| "domains"
+	| "setup";
 
 const navItems: Array<{ key: PageKey; label: string; icon: typeof Gauge }> = [
 	{ key: "dashboard", label: "Dashboard", icon: Gauge },

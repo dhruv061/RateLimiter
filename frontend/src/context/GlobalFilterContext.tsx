@@ -11,6 +11,11 @@ export interface Domain {
   server_name: string;
   description: string;
   is_valid: boolean;
+  status: string;
+  rate_limit: number;
+  burst_size: number;
+  ban_time: number;
+  generated_config?: string;
   last_validated_at?: string;
   created_at: string;
   updated_at: string;

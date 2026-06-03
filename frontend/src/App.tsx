@@ -12,6 +12,7 @@ import { ReportsPage } from "./features/reports/ReportsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { WhitelistPage } from "./features/whitelist/WhitelistPage";
 import { DomainsPage } from "./features/domains/DomainsPage";
+import { SetupWizardPage } from "./features/setup/SetupWizardPage";
 import { api, getToken, setToken } from "./services/api";
 import type { User } from "./types/api";
 
@@ -24,6 +25,20 @@ export function App() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  // Listen for decoupled navigation events (used for Setup redirection)
+  useEffect(() => {
+    const handleNavigate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (typeof customEvent.detail === "string") {
+        setPage(customEvent.detail as PageKey);
+      } else if (customEvent.detail && typeof customEvent.detail === "object") {
+        setPage(customEvent.detail.page as PageKey);
+      }
+    };
+    window.addEventListener("navigate-page", handleNavigate);
+    return () => window.removeEventListener("navigate-page", handleNavigate);
+  }, []);
 
   if (!authenticated) {
     return <Login onLogin={() => setAuthenticated(true)} />;
@@ -41,6 +56,16 @@ export function App() {
       {page === "settings" && <SettingsPage />}
       {page === "reports" && <ReportsPage />}
       {page === "domains" && <DomainsPage />}
+      {page === "setup" && (
+        <SetupWizardPage
+          onComplete={() => {
+            setPage("domains");
+          }}
+          onCancel={() => {
+            setPage("domains");
+          }}
+        />
+      )}
     </AppShell>
   );
 }

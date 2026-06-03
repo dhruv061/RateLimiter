@@ -22,12 +22,41 @@ func NewDomainService(db *database.DB, demoMode bool) *DomainService {
 	return &DomainService{db: db, demoMode: demoMode}
 }
 
+// scanDomain scans a domain row from the given scanner.
+func scanDomain(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*models.Domain, error) {
+	var d models.Domain
+	var lastVal sql.NullTime
+	var status sql.NullString
+	var generatedConfig sql.NullString
+	err := scanner.Scan(
+		&d.ID, &d.DomainName, &d.AccessLogPath, &d.ErrorLogPath, &d.BlockedIPFilePath, &d.Fail2BanJailName,
+		&d.ServerName, &d.Description, &d.IsValid, &status, &d.RateLimit, &d.BurstSize, &d.BanTime,
+		&generatedConfig, &lastVal, &d.CreatedAt, &d.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if lastVal.Valid {
+		d.LastValidatedAt = &lastVal.Time
+	}
+	if status.Valid {
+		d.Status = status.String
+	} else {
+		d.Status = "active"
+	}
+	if generatedConfig.Valid {
+		d.GeneratedConfig = generatedConfig.String
+	}
+	return &d, nil
+}
+
+const domainSelectCols = `id, domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid, status, rate_limit, burst_size, ban_time, generated_config, last_validated_at, created_at, updated_at`
+
 // GetDomains retrieves all configured domains.
 func (s *DomainService) GetDomains() ([]models.Domain, error) {
-	rows, err := s.db.Query(`
-		SELECT id, domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid, last_validated_at, created_at, updated_at
-		FROM domains ORDER BY id ASC
-	`)
+	rows, err := s.db.Query(`SELECT ` + domainSelectCols + ` FROM domains ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -35,42 +64,26 @@ func (s *DomainService) GetDomains() ([]models.Domain, error) {
 
 	var list []models.Domain
 	for rows.Next() {
-		var d models.Domain
-		var lastVal sql.NullTime
-		err := rows.Scan(
-			&d.ID, &d.DomainName, &d.AccessLogPath, &d.ErrorLogPath, &d.BlockedIPFilePath, &d.Fail2BanJailName, &d.ServerName, &d.Description, &d.IsValid, &lastVal, &d.CreatedAt, &d.UpdatedAt,
-		)
+		d, err := scanDomain(rows)
 		if err != nil {
 			return nil, err
 		}
-		if lastVal.Valid {
-			d.LastValidatedAt = &lastVal.Time
-		}
-		list = append(list, d)
+		list = append(list, *d)
 	}
 	return list, nil
 }
 
 // GetDomainByID retrieves a domain by its ID.
 func (s *DomainService) GetDomainByID(id int64) (*models.Domain, error) {
-	var d models.Domain
-	var lastVal sql.NullTime
-	err := s.db.QueryRow(`
-		SELECT id, domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid, last_validated_at, created_at, updated_at
-		FROM domains WHERE id = ?
-	`, id).Scan(
-		&d.ID, &d.DomainName, &d.AccessLogPath, &d.ErrorLogPath, &d.BlockedIPFilePath, &d.Fail2BanJailName, &d.ServerName, &d.Description, &d.IsValid, &lastVal, &d.CreatedAt, &d.UpdatedAt,
-	)
+	row := s.db.QueryRow(`SELECT `+domainSelectCols+` FROM domains WHERE id = ?`, id)
+	d, err := scanDomain(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("domain not found")
 		}
 		return nil, err
 	}
-	if lastVal.Valid {
-		d.LastValidatedAt = &lastVal.Time
-	}
-	return &d, nil
+	return d, nil
 }
 
 // CreateDomain registers a new domain after performing log path validation.
@@ -78,10 +91,27 @@ func (s *DomainService) CreateDomain(req models.DomainCreateRequest) (*models.Do
 	v, _ := s.ValidateDomainConfig(req)
 	isValid := v.OverallValid
 
+	status := req.Status
+	if status == "" {
+		status = "active"
+	}
+	rateLimit := req.RateLimit
+	if rateLimit <= 0 {
+		rateLimit = 5
+	}
+	burstSize := req.BurstSize
+	if burstSize <= 0 {
+		burstSize = 5
+	}
+	banTime := req.BanTime
+	if banTime <= 0 {
+		banTime = 86400
+	}
+
 	result, err := s.db.Exec(`
-		INSERT INTO domains (domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid, last_validated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.DomainName, req.AccessLogPath, req.ErrorLogPath, req.BlockedIPFilePath, req.Fail2BanJailName, req.ServerName, req.Description, isValid, time.Now())
+		INSERT INTO domains (domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid, last_validated_at, status, rate_limit, burst_size, ban_time, generated_config)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, req.DomainName, req.AccessLogPath, req.ErrorLogPath, req.BlockedIPFilePath, req.Fail2BanJailName, req.ServerName, req.Description, isValid, time.Now(), status, rateLimit, burstSize, banTime, req.GeneratedConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -138,12 +168,24 @@ func (s *DomainService) UpdateDomain(id int64, req models.DomainUpdateRequest) (
 	return s.GetDomainByID(id)
 }
 
-// DeleteDomain removes a domain configuration.
+// UpdateDomainStatus updates only the status field of a domain.
+func (s *DomainService) UpdateDomainStatus(id int64, status string) error {
+	_, err := s.db.Exec(`UPDATE domains SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
+	return err
+}
+
+// DeleteDomain removes a domain configuration and all related records.
 func (s *DomainService) DeleteDomain(id int64) error {
 	_, err := s.GetDomainByID(id)
 	if err != nil {
 		return err
 	}
+
+	// Cascading delete: remove related records
+	s.db.Exec("DELETE FROM bans WHERE domain_id = ?", id)
+	s.db.Exec("DELETE FROM whitelist WHERE domain_id = ?", id)
+	s.db.Exec("DELETE FROM audit_logs WHERE domain_id = ?", id)
+	s.db.Exec("DELETE FROM traffic_stats WHERE domain_id = ?", id)
 
 	_, err = s.db.Exec("DELETE FROM domains WHERE id = ?", id)
 	return err

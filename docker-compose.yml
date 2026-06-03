@@ -14,6 +14,11 @@ services:
       - /var/log/nginx:/host/nginx:ro
       - /var/log/fail2ban.log:/host/fail2ban.log:ro
       - /etc/nginx/fail2ban_blocked.conf:/host/fail2ban_blocked.conf
+      - /etc/nginx/sites-enabled:/host/nginx-sites-enabled:ro
+      - /etc/nginx/conf.d:/host/nginx-conf-d:ro
+      - /etc/nginx/sites-available:/host/nginx-sites-available:ro
+      - /etc/nginx:/host/nginx-config:ro
+      - /etc/fail2ban:/host/fail2ban:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
