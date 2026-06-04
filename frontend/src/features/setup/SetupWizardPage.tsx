@@ -72,7 +72,7 @@ interface ValidationResponse {
 }
 
 export function SetupWizardPage({ onComplete, onCancel }: SetupWizardPageProps) {
-	const { refreshDomains } = useGlobalFilter();
+	const { refreshDomains, setSelectedDomain, setSelectedRange } = useGlobalFilter();
 	const [step, setStep] = useState(1);
 
 	// Step 1: Fail2Ban Status
@@ -220,6 +220,8 @@ export function SetupWizardPage({ onComplete, onCancel }: SetupWizardPageProps) 
 				body: JSON.stringify(payload)
 			});
 			await refreshDomains();
+			setSelectedDomain(savedDomain.id);
+			setSelectedRange("last_24h");
 			// Complete wizard! Success screen will trigger next step
 			setStep(6);
 			return savedDomain.id;

@@ -76,7 +76,7 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 	settingsHandler := handlers.NewSettingsHandler(services.NewSettingsService(db), auditSvc)
 	auditHandler := handlers.NewAuditHandler(auditSvc)
 	analyticsHandler := handlers.NewAnalyticsHandler(dashboardSvc, banSvc)
-	liveHandler := handlers.NewLiveHandler(nginxAccessLog)
+	liveHandler := handlers.NewLiveHandler(db, nginxAccessLog)
 	systemHandler := handlers.NewSystemHandler()
 	reportsHandler := handlers.NewReportsHandler(dashboardSvc, banSvc, auditSvc)
 	domainHandler := handlers.NewDomainHandler(domainSvc)

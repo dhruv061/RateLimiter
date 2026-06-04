@@ -13,6 +13,8 @@ import { SettingsPage } from "./features/settings/SettingsPage";
 import { WhitelistPage } from "./features/whitelist/WhitelistPage";
 import { DomainsPage } from "./features/domains/DomainsPage";
 import { SetupWizardPage } from "./features/setup/SetupWizardPage";
+import { WelcomeScreen } from "./features/setup/WelcomeScreen";
+import { useGlobalFilter } from "./context/GlobalFilterContext";
 import { api, getToken, setToken } from "./services/api";
 import type { User } from "./types/api";
 
@@ -20,6 +22,7 @@ export function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
   const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("theme") as "dark" | "light") || "dark");
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
+  const { domains, loadingDomains } = useGlobalFilter();
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -46,6 +49,9 @@ export function App() {
 
   return (
     <AppShell page={page} setPage={setPage} theme={theme} onThemeToggle={() => setTheme(theme === "dark" ? "light" : "dark")}>
+      {!loadingDomains && domains.length === 0 && page !== "setup" && <WelcomeScreen onConfigure={() => setPage("setup")} />}
+      {(!loadingDomains && domains.length === 0 && page !== "setup") ? null : (
+        <>
       {page === "dashboard" && <DashboardPage />}
       {page === "active-bans" && <BansPage />}
       {page === "history" && <BansPage history />}
@@ -65,6 +71,8 @@ export function App() {
             setPage("domains");
           }}
         />
+      )}
+        </>
       )}
     </AppShell>
   );

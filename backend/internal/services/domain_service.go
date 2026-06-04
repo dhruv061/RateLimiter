@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"fail2ban-dashboard/internal/database"
@@ -209,30 +211,27 @@ func (s *DomainService) ValidateDomainConfig(req models.DomainCreateRequest) (mo
 	}
 
 	// Access Log Check
-	if _, err := os.Stat(req.AccessLogPath); err == nil {
+	if pathExists(req.AccessLogPath) {
 		v.AccessLogExists = true
 		v.AccessLogMsg = "Access log file exists and is accessible."
 	} else {
-		v.AccessLogExists = false
-		v.AccessLogMsg = fmt.Sprintf("Error finding access log: %v", err)
+		v.AccessLogMsg = fmt.Sprintf("Access log not found at %s or mounted host equivalent.", req.AccessLogPath)
 	}
 
 	// Error Log Check
-	if _, err := os.Stat(req.ErrorLogPath); err == nil {
+	if pathExists(req.ErrorLogPath) {
 		v.ErrorLogExists = true
 		v.ErrorLogMsg = "Error log file exists and is accessible."
 	} else {
-		v.ErrorLogExists = false
-		v.ErrorLogMsg = fmt.Sprintf("Error finding error log: %v", err)
+		v.ErrorLogMsg = fmt.Sprintf("Error log not found at %s or mounted host equivalent.", req.ErrorLogPath)
 	}
 
 	// Block File Check
-	if _, err := os.Stat(req.BlockedIPFilePath); err == nil {
+	if pathExists(req.BlockedIPFilePath) {
 		v.BlockFileExists = true
 		v.BlockFileMsg = "Block file exists and is writable."
 	} else {
-		v.BlockFileExists = false
-		v.BlockFileMsg = fmt.Sprintf("Error finding block file: %v", err)
+		v.BlockFileMsg = fmt.Sprintf("Block file not found at %s or mounted host equivalent.", req.BlockedIPFilePath)
 	}
 
 	// Fail2Ban Jail Check
@@ -242,4 +241,33 @@ func (s *DomainService) ValidateDomainConfig(req models.DomainCreateRequest) (mo
 	v.OverallValid = v.AccessLogExists && v.ErrorLogExists && v.BlockFileExists && v.Fail2BanJailOK
 
 	return v, nil
+}
+
+func pathExists(path string) bool {
+	for _, candidate := range hostPathCandidates(path) {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func hostPathCandidates(path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	candidates := []string{path}
+	switch {
+	case strings.HasPrefix(path, "/var/log/nginx/"):
+		candidates = append(candidates, strings.Replace(path, "/var/log/nginx/", "/host/nginx/", 1))
+	case strings.HasPrefix(path, "/etc/nginx/"):
+		candidates = append(candidates, strings.Replace(path, "/etc/nginx/", "/host/nginx-config/", 1))
+	case strings.HasPrefix(path, "/etc/fail2ban/"):
+		candidates = append(candidates, strings.Replace(path, "/etc/fail2ban/", "/host/fail2ban/", 1))
+	}
+	candidates = append(candidates, filepath.Join("/host/nginx", filepath.Base(path)))
+
+	return candidates
 }

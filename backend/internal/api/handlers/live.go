@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"fail2ban-dashboard/internal/database"
 	"fail2ban-dashboard/internal/models"
 	"fail2ban-dashboard/pkg/response"
 
@@ -17,12 +19,13 @@ import (
 
 // LiveHandler handles live request endpoints.
 type LiveHandler struct {
+	db            *database.DB
 	accessLogPath string
 }
 
 // NewLiveHandler creates a new LiveHandler.
-func NewLiveHandler(accessLogPath string) *LiveHandler {
-	return &LiveHandler{accessLogPath: accessLogPath}
+func NewLiveHandler(db *database.DB, accessLogPath string) *LiveHandler {
+	return &LiveHandler{db: db, accessLogPath: accessLogPath}
 }
 
 var accessLogPattern = regexp.MustCompile(`^(\S+) \S+ \S+ \[([^\]]+)\] "([^"]*)" (\d{3}) (\S+) "[^"]*" "([^"]*)"`)
@@ -34,7 +37,13 @@ func (h *LiveHandler) GetRequests(c *gin.Context) {
 		limit = 50
 	}
 
-	lines, err := tailLines(h.accessLogPath, limit*3)
+	logPath := h.resolveAccessLogPath(c)
+	if logPath == "" {
+		response.OK(c, []models.LiveRequest{})
+		return
+	}
+
+	lines, err := tailLines(logPath, limit*3)
 	if err != nil {
 		response.OK(c, []models.LiveRequest{})
 		return
@@ -48,6 +57,28 @@ func (h *LiveHandler) GetRequests(c *gin.Context) {
 	}
 
 	response.OK(c, requests)
+}
+
+func (h *LiveHandler) resolveAccessLogPath(c *gin.Context) string {
+	if h.db != nil {
+		if domainID, err := strconv.ParseInt(c.Query("domain_id"), 10, 64); err == nil && domainID > 0 {
+			if path := h.domainAccessLogPath("SELECT access_log_path FROM domains WHERE id = ? AND status = 'active'", domainID); path != "" {
+				return path
+			}
+		}
+		if path := h.domainAccessLogPath("SELECT access_log_path FROM domains WHERE status = 'active' ORDER BY id ASC LIMIT 1"); path != "" {
+			return path
+		}
+	}
+	return readableHostPath(h.accessLogPath)
+}
+
+func (h *LiveHandler) domainAccessLogPath(query string, args ...interface{}) string {
+	var path string
+	if err := h.db.QueryRow(query, args...).Scan(&path); err != nil {
+		return ""
+	}
+	return readableHostPath(path)
 }
 
 func tailLines(path string, limit int) ([]string, error) {
@@ -120,4 +151,27 @@ func parseAccessLogLine(line string) (models.LiveRequest, bool) {
 		UserAgent:    matches[6],
 		BytesSent:    bytesSent,
 	}, true
+}
+
+func readableHostPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	candidates := []string{path}
+	switch {
+	case strings.HasPrefix(path, "/var/log/nginx/"):
+		candidates = append(candidates, strings.Replace(path, "/var/log/nginx/", "/host/nginx/", 1))
+	case strings.HasPrefix(path, "/etc/nginx/"):
+		candidates = append(candidates, strings.Replace(path, "/etc/nginx/", "/host/nginx-config/", 1))
+	}
+	candidates = append(candidates, filepath.Join("/host/nginx", filepath.Base(path)))
+
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }

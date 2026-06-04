@@ -215,14 +215,14 @@ func (db *DB) SeedDefaultAdmin(username, password string) error {
 // SeedDefaultSettings inserts default settings if none exist.
 func (db *DB) SeedDefaultSettings() error {
 	defaults := map[string]string{
-		"nginx_rate_limit_rps":     "10",
-		"nginx_rate_limit_burst":   "20",
-		"fail2ban_ban_time":        "3600",
-		"fail2ban_find_time":       "600",
-		"fail2ban_max_retry":       "5",
-		"theme":                    "dark",
-		"notifications_enabled":    "true",
-		"auto_refresh_interval":    "30",
+		"nginx_rate_limit_rps":   "10",
+		"nginx_rate_limit_burst": "20",
+		"fail2ban_ban_time":      "3600",
+		"fail2ban_find_time":     "600",
+		"fail2ban_max_retry":     "5",
+		"theme":                  "dark",
+		"notifications_enabled":  "true",
+		"auto_refresh_interval":  "30",
 	}
 
 	for key, value := range defaults {
@@ -236,35 +236,4 @@ func (db *DB) SeedDefaultSettings() error {
 	}
 
 	return nil
-}
-
-// SeedDefaultDomain creates a default demo domain if none exist.
-func (db *DB) SeedDefaultDomain() (int64, error) {
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM domains").Scan(&count)
-	if count > 0 {
-		var id int64
-		db.QueryRow("SELECT id FROM domains ORDER BY id ASC LIMIT 1").Scan(&id)
-		return id, nil
-	}
-
-	result, err := db.Exec(
-		`INSERT INTO domains (domain_name, access_log_path, error_log_path, blocked_ip_file_path, fail2ban_jail_name, server_name, description, is_valid)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"example.com",
-		"/var/log/nginx/example_access.log",
-		"/var/log/nginx/example_error.log",
-		"/etc/nginx/example_blocked.conf",
-		"nginx-429",
-		"Primary Server",
-		"Default demo domain",
-		true,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("failed to seed default domain: %w", err)
-	}
-
-	id, _ := result.LastInsertId()
-	log.Printf("✅ Default domain 'example.com' created (id=%d)", id)
-	return id, nil
 }
