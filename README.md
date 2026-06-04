@@ -56,6 +56,7 @@ Key environment variables:
 - `FAIL2BAN_LOG`: mounted Fail2Ban log path.
 - `BLOCK_FILE_PATH`: mounted Fail2Ban/Nginx block include file.
 - `DEMO_MODE`: set to `false` for real deployments; set to `true` only for fake demo data.
+- `CORS_ALLOWED_ORIGINS`: optional comma-separated extra browser origins if the UI and API are served from different hosts.
 - `DEFAULT_ADMIN_USER` / `DEFAULT_ADMIN_PASS`: first-run admin account for a new database.
 
 ## Updating
