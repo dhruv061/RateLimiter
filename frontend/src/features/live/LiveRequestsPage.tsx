@@ -11,7 +11,15 @@ import type { LiveRequest } from "../../types/api";
 export function LiveRequestsPage() {
   const [search, setSearch] = useState("");
   const { data } = useApi<LiveRequest[]>("/api/live-requests?limit=100", []);
-  const rows = useMemo(() => data.filter((item) => item.ip_address.includes(search) || item.url.toLowerCase().includes(search.toLowerCase())), [data, search]);
+  const rows = useMemo(
+    () =>
+      data.filter((item) => {
+        const ip = item.ip_address || "";
+        const url = item.url || "";
+        return ip.includes(search) || url.toLowerCase().includes(search.toLowerCase());
+      }),
+    [data, search]
+  );
 
   return (
     <>
@@ -38,18 +46,18 @@ export function LiveRequestsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? <EmptyRow colSpan={7}>No live requests match the current filters.</EmptyRow> : null}
+              {rows.length === 0 ? <EmptyRow colSpan={7}>No recent requests found in the configured access log.</EmptyRow> : null}
               {rows.map((request, index) => (
                 <tr key={`${request.timestamp}-${index}`} className="hover:bg-muted/60">
-                  <Td>{new Date(request.timestamp).toLocaleTimeString()}</Td>
-                  <Td className="font-mono">{request.ip_address}</Td>
-                  <Td>{request.method}</Td>
-                  <Td className="max-w-[260px] truncate">{request.url}</Td>
+                  <Td>{request.timestamp ? new Date(request.timestamp).toLocaleTimeString() : "-"}</Td>
+                  <Td className="font-mono">{request.ip_address || "-"}</Td>
+                  <Td>{request.method || "-"}</Td>
+                  <Td className="max-w-[260px] truncate">{request.url || "-"}</Td>
                   <Td>
                     <Badge tone={request.status_code === 429 || request.status_code === 403 ? "danger" : "success"}>{request.status_code}</Badge>
                   </Td>
-                  <Td>{request.response_time.toFixed(0)}ms</Td>
-                  <Td className="max-w-[260px] truncate text-muted-foreground">{request.user_agent}</Td>
+                  <Td>{Number(request.response_time || 0).toFixed(0)}ms</Td>
+                  <Td className="max-w-[260px] truncate text-muted-foreground">{request.user_agent || "-"}</Td>
                 </tr>
               ))}
             </tbody>

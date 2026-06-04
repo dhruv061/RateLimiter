@@ -68,7 +68,7 @@ func Load() *Config {
 		Fail2BanLog:    getEnv("FAIL2BAN_LOG", "/host/fail2ban.log"),
 		BlockFilePath:  getEnv("BLOCK_FILE_PATH", "/host/fail2ban_blocked.conf"),
 
-		DemoMode: getEnv("DEMO_MODE", "true") == "true",
+		DemoMode: getEnv("DEMO_MODE", "false") == "true",
 
 		DefaultAdminUser: getEnv("DEFAULT_ADMIN_USER", "admin"),
 		DefaultAdminPass: getEnv("DEFAULT_ADMIN_PASS", "admin"),

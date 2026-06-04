@@ -49,7 +49,7 @@ func main() {
 	go hub.Run()
 	go broadcastDashboardEvents(hub, db)
 
-	router := setupRouter(db, jwtManager, hub, cfg.DemoMode)
+	router := setupRouter(db, jwtManager, hub, cfg.DemoMode, cfg.NginxAccessLog)
 
 	addr := ":" + cfg.AppPort
 	log.Printf("%s listening on %s", cfg.AppName, addr)
@@ -58,7 +58,7 @@ func main() {
 	}
 }
 
-func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hub, demoMode bool) *gin.Engine {
+func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hub, demoMode bool, nginxAccessLog string) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), middleware.CORSMiddleware())
 
@@ -76,7 +76,7 @@ func setupRouter(db *database.DB, jwtManager *auth.JWTManager, hub *websocket.Hu
 	settingsHandler := handlers.NewSettingsHandler(services.NewSettingsService(db), auditSvc)
 	auditHandler := handlers.NewAuditHandler(auditSvc)
 	analyticsHandler := handlers.NewAnalyticsHandler(dashboardSvc, banSvc)
-	liveHandler := handlers.NewLiveHandler()
+	liveHandler := handlers.NewLiveHandler(nginxAccessLog)
 	systemHandler := handlers.NewSystemHandler()
 	reportsHandler := handlers.NewReportsHandler(dashboardSvc, banSvc, auditSvc)
 	domainHandler := handlers.NewDomainHandler(domainSvc)
