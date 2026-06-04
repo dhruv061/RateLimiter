@@ -50,7 +50,23 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  const payload = (await res.json()) as ApiEnvelope<T>;
+  const contentType = res.headers.get("content-type") || "";
+  const body = await res.text();
+  let payload: ApiEnvelope<T> | undefined;
+
+  if (contentType.includes("application/json") && body.trim()) {
+    try {
+      payload = JSON.parse(body) as ApiEnvelope<T>;
+    } catch {
+      // Fall through to the non-JSON error below so the UI shows a useful message.
+    }
+  }
+
+  if (!payload) {
+    const message = body.trim() || `Server returned ${res.status || "an empty response"}`;
+    throw new Error(message);
+  }
+
   if (!res.ok || !payload.success) {
     throw new Error(payload.error || "Request failed");
   }

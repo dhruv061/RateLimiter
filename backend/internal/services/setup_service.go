@@ -523,7 +523,7 @@ echo "======================================================================"
 echo "Cleanup script executed successfully!"
 echo "Make sure you have manually removed the Nginx snippets from your config!"
 echo "======================================================================"
-`, domainName, domainName, slug, slug, slug, slug, slug, slug, slug, slug, slug, slug, slug)
+`, domainName, domainName, slug, slug, slug, slug, slug, slug, slug, slug, slug, slug, slug, slug)
 
 	filesToRemove := []models.GeneratedFile{
 		{Filename: fmt.Sprintf("%s.local", slug), Path: fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", slug)},

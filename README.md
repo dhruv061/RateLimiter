@@ -22,7 +22,7 @@ A modern dark-first dashboard for Nginx rate limiting, Fail2Ban bans, active att
 ./scripts/setup.sh
 ```
 
-Edit `.env`, especially `JWT_SECRET` and default admin values.
+Edit `.env`, especially `JWT_SECRET`, `DEMO_MODE`, and default admin values.
 
 ## Running
 
@@ -48,14 +48,15 @@ Change the password after first login.
 
 Key environment variables:
 
-- `APP_PORT`: dashboard port.
+- `APP_PORT`: public dashboard port exposed by the frontend container.
 - `JWT_SECRET`: signing secret for JWT tokens.
 - `DATABASE_PATH`: SQLite database path inside the container.
 - `NGINX_ACCESS_LOG`: mounted Nginx access log path.
 - `NGINX_ERROR_LOG`: mounted Nginx error log path.
 - `FAIL2BAN_LOG`: mounted Fail2Ban log path.
 - `BLOCK_FILE_PATH`: mounted Fail2Ban/Nginx block include file.
-- `DEMO_MODE`: seed demo data when true.
+- `DEMO_MODE`: set to `false` for real deployments; set to `true` only for fake demo data.
+- `DEFAULT_ADMIN_USER` / `DEFAULT_ADMIN_PASS`: first-run admin account for a new database.
 
 ## Updating
 
